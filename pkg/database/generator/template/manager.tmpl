@@ -1,0 +1,85 @@
+/*
+/$$$$$$$   /$$$$$$        /$$   /$$  /$$$$$$  /$$$$$$$$       /$$$$$$$$ /$$$$$$$  /$$$$$$ /$$$$$$$$
+| $$__  $$ /$$__  $$      | $$$ | $$ /$$__  $$|__  $$__/      | $$_____/| $$__  $$|_  $$_/|__  $$__/
+| $$  \ $$| $$  \ $$      | $$$$| $$| $$  \ $$   | $$         | $$      | $$  \ $$  | $$     | $$
+| $$  | $$| $$  | $$      | $$ $$ $$| $$  | $$   | $$         | $$$$$   | $$  | $$  | $$     | $$
+| $$  | $$| $$  | $$      | $$  $$$$| $$  | $$   | $$         | $$__/   | $$  | $$  | $$     | $$
+| $$  | $$| $$  | $$      | $$\  $$$| $$  | $$   | $$         | $$      | $$  | $$  | $$     | $$
+| $$$$$$$/|  $$$$$$/      | $$ \  $$|  $$$$$$/   | $$         | $$$$$$$$| $$$$$$$/ /$$$$$$   | $$
+|_______/  \______/       |__/  \__/ \______/    |__/         |________/|_______/ |______/   |__/
+*/
+// Generated at: {{.Date}}
+
+package access
+
+import (
+    "database/sql"
+    "log"
+)
+
+type DbManager struct {
+    db *sql.DB
+}
+
+func NewDbManager(config *DbConfig) DbManager{
+    manager := DbManager{}
+    manager.openConnection(config)
+    return manager
+}
+
+
+func (manager *DbManager) openConnection(config *DbConfig){
+    db, err := sql.Open("mysql", config.getDatasource())
+    if err != nil {
+    log.Fatal("could not connect to database", err)
+    }
+    manager.db = db
+}
+
+func (manager *DbManager) performDDL(cmd string){
+    tx, err := manager.db.Begin()
+        if err != nil {
+        log.Fatal(err)
+    }
+
+    _, execErr := tx.Exec(cmd)
+    if execErr != nil {
+        _ = tx.Rollback()
+        log.Fatal(execErr)
+    }
+
+    if err := tx.Commit(); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func (manager *DbManager) DropDatabase(){
+    manager.performDDL("DROP DATABASE IF EXISTS {{.DbName}};")
+}
+
+func (manager *DbManager) CreateDatabase() {
+    manager.performDDL("CREATE DATABASE IF NOT EXISTS {{.DbName}} DEFAULT CHARACTER SET UTF8MB4;")
+    manager.performDDL("USE {{.DbName}}")
+}
+
+func (manager *DbManager) CreateAllTables(){
+    {{range $def := .Tables}} manager.CreateTable{{.TableName}}()
+    {{end}}
+    {{range $def := .Tables}} manager.AddForeignKey{{.TableName}}()
+    {{end}}
+}
+
+{{range $tn := .Tables}}
+func (manager *DbManager) CreateTable{{.TableName}}() {
+    manager.performDDL(`
+        CREATE TABLE {{.TableName}} (
+            {{range $def := .Columns}} {{$def}} {{end}}
+        );
+    `)
+}
+
+func (manager *DbManager) AddForeignKey{{.TableName}}() {
+{{range $fk := .ForeignKey}}manager.performDDL(`ALTER TABLE {{$tn.TableName}} ADD {{$fk}}`)
+{{end}}
+}
+{{end}}
